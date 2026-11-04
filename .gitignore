@@ -1,0 +1,29 @@
+# Sensitive credentials & personal config
+config.json
+positions.json
+
+# Private guides & documentation
+ZERODHA_ENCTOKEN_INTEGRATION_GUIDE.md
+
+# Large master data file (auto-downloaded by the app)
+instruments.csv
+
+# Python byte-code & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# IDE & OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

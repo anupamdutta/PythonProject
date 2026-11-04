@@ -1,0 +1,14 @@
+{
+  "initial_capital": 500000.0,
+  "feed_mode": "LIVE",
+  "enctoken": "YOUR_ZERODHA_ENCTOKEN_HERE",
+  "user_id": "YOUR_USER_ID",
+  "watchlist": [
+    {
+      "symbol": "CRUDEOIL26NOV9150PE",
+      "exchange": "MCX",
+      "lot_size": 100
+    }
+  ],
+  "saved_profiles": {}
+}
