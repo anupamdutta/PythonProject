@@ -18,17 +18,18 @@ from .models import Quote, get_default_lot_size
 
 
 INSTRUMENTS_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "instruments.csv")
+CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.json")
 
 
 class DataFeedManager(QObject):
     quote_received = pyqtSignal(object)        # Emits Quote
     connection_status = pyqtSignal(str, bool)  # (status_message, is_connected)
 
-    def __init__(self):
+    def __init__(self, user_id: str = ""):
         super().__init__()
         self.mode: str = "LIVE"
         self.enctoken: str = ""
-        self.user_id: str = "ZP5815"
+        self.user_id: str = user_id or self._load_user_id_from_config()
         self.subscribed_symbols: Dict[str, Quote] = {}          # symbol -> Quote
         self.token_to_symbol: Dict[int, str] = {}               # token -> symbol
         self.instrument_lookup: Dict[str, dict] = {}            # symbol / exchange:symbol -> {token, lot, exchange}
@@ -39,6 +40,17 @@ class DataFeedManager(QObject):
         self._ws_thread: Optional[threading.Thread] = None
 
         self._load_local_instruments()
+
+    def _load_user_id_from_config(self) -> str:
+        """Reads user_id from config.json if available."""
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    return str(cfg.get("user_id", "")).strip()
+            except Exception as e:
+                print("Could not read user_id from config.json:", e)
+        return ""
 
     def _load_local_instruments(self):
         """Loads instruments from local disk cache and checks if daily refresh is needed."""
@@ -58,13 +70,14 @@ class DataFeedManager(QObject):
                         exch = row.get("exchange", "").strip().upper()
                         tok_str = row.get("instrument_token", "")
                         lot_str = row.get("lot_size", "1")
-                        if sym and tok_str.isdigit() and exch in ("NFO", "BFO", "MCX"):
+                        if sym and tok_str.isdigit() and (exch in ("NFO", "BFO", "MCX") or sym in ("NIFTY 50", "SENSEX") or row.get("segment") == "INDICES"):
                             tok = int(tok_str)
                             lot = int(lot_str) if lot_str.isdigit() else 1
                             item = {"token": tok, "lot": lot, "exchange": exch, "symbol": sym}
                             lookup[f"{exch}:{sym}"] = item
                             lookup[sym] = item
-                            sym_list.append(sym)
+                            if exch in ("NFO", "BFO", "MCX"):
+                                sym_list.append(sym)
                     self.instrument_lookup = lookup
                     self.all_symbols_list = sorted(list(set(sym_list)))
             except Exception as e:
@@ -120,6 +133,8 @@ class DataFeedManager(QObject):
         self.enctoken = enctoken.strip()
         if user_id.strip():
             self.user_id = user_id.strip()
+        elif not self.user_id:
+            self.user_id = self._load_user_id_from_config()
         self.mode = "LIVE"
         self.connection_status.emit("Connecting to Zerodha WebSocket...", False)
         self._start_websocket()
@@ -175,6 +190,10 @@ class DataFeedManager(QObject):
                 print("WS subscribe error:", e)
 
     def _lookup_token(self, symbol: str, exchange: str) -> Optional[int]:
+        if symbol == "NIFTY 50":
+            return 256265
+        if symbol == "SENSEX":
+            return 265
         key1 = f"{exchange}:{symbol}"
         if key1 in self.instrument_lookup:
             return self.instrument_lookup[key1]["token"]
@@ -210,7 +229,17 @@ class DataFeedManager(QObject):
                     q = self.subscribed_symbols[sym]
                     q.ltp = ltp
 
-                    if pkt_len >= 44:
+                    if pkt_len in (28, 32):
+                        # Index quote packet (28 or 32 bytes)
+                        hi, lo, op, cl = struct.unpack(">IIII", pkt[8:24])
+                        q.high = hi / 100.0
+                        q.low = lo / 100.0
+                        q.open = op / 100.0
+                        q.close = cl / 100.0
+                        if q.close > 0:
+                            q.change = round(q.ltp - q.close, 2)
+                            q.change_pct = round((q.change / q.close) * 100, 2)
+                    elif pkt_len >= 44:
                         op, hi, lo, cl = struct.unpack(">IIII", pkt[28:44])
                         q.open = op / 100.0
                         q.high = hi / 100.0
@@ -308,6 +337,29 @@ class DataFeedManager(QObject):
         while self._running:
             if self.mode == "SIMULATION":
                 for symbol, q in list(self.subscribed_symbols.items()):
+                    if symbol == "NIFTY 50":
+                        if q.ltp <= 0:
+                            q.ltp = 24148.20
+                            q.close = 24102.90
+                            q.open = 24115.00
+                        delta = random.choice([-2, -1, 0, 1, 2]) * 1.5
+                        q.ltp = round(max(1000.0, q.ltp + delta), 2)
+                        q.change = round(q.ltp - q.close, 2)
+                        q.change_pct = round((q.change / q.close) * 100, 2)
+                        self.quote_received.emit(q)
+                        continue
+                    elif symbol == "SENSEX":
+                        if q.ltp <= 0:
+                            q.ltp = 79486.32
+                            q.close = 79606.72
+                            q.open = 79510.00
+                        delta = random.choice([-2, -1, 0, 1, 2]) * 4.5
+                        q.ltp = round(max(1000.0, q.ltp + delta), 2)
+                        q.change = round(q.ltp - q.close, 2)
+                        q.change_pct = round((q.change / q.close) * 100, 2)
+                        self.quote_received.emit(q)
+                        continue
+
                     if q.ltp <= 0:
                         q.ltp = 100.0
                     tick_step = 0.05 if q.ltp < 200 else 0.15

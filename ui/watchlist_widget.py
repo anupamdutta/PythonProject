@@ -4,12 +4,13 @@ Autocomplete Search, Flexible Resizable Headers, and Roomy Action Buttons
 """
 import os
 import csv
+from datetime import datetime, timezone, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QComboBox,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QAbstractItemView, QCompleter
+    QAbstractItemView, QCompleter, QFrame
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QKeyEvent
 from engine.models import Quote, get_default_lot_size
 
@@ -43,11 +44,72 @@ class WatchlistWidget(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(6)
 
-        # Header with slot counter & Actions
+        # Header with title, index feeds (Nifty & Sensex), live IST clock, slot counter & Actions
         header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
         title = QLabel("DERIVATIVES WATCHLIST")
         title.setStyleSheet("font-weight: 800; color: #8b96ad; font-size: 11px; letter-spacing: 0.8px;")
+        header_layout.addWidget(title)
 
+        header_layout.addSpacing(2)
+
+        # NIFTY 50 Live Feed Pill
+        self.nifty_pill = QFrame()
+        self.nifty_pill.setObjectName("IndexPill")
+        nifty_layout = QHBoxLayout(self.nifty_pill)
+        nifty_layout.setContentsMargins(8, 2, 8, 2)
+        nifty_layout.setSpacing(6)
+        nifty_name = QLabel("NIFTY 50")
+        nifty_name.setStyleSheet("font-weight: 800; color: #8b96ad; font-size: 10px; font-family: 'Segoe UI', sans-serif;")
+        self.nifty_ltp = QLabel("--")
+        self.nifty_ltp.setStyleSheet("font-weight: 700; color: #f5f7fa; font-size: 11px; font-family: 'JetBrains Mono', monospace;")
+        self.nifty_chg = QLabel("--")
+        self.nifty_chg.setStyleSheet("font-weight: 700; color: #7d879e; font-size: 10px; font-family: 'JetBrains Mono', monospace;")
+        nifty_layout.addWidget(nifty_name)
+        nifty_layout.addWidget(self.nifty_ltp)
+        nifty_layout.addWidget(self.nifty_chg)
+        header_layout.addWidget(self.nifty_pill)
+
+        # SENSEX Live Feed Pill
+        self.sensex_pill = QFrame()
+        self.sensex_pill.setObjectName("IndexPill")
+        sensex_layout = QHBoxLayout(self.sensex_pill)
+        sensex_layout.setContentsMargins(8, 2, 8, 2)
+        sensex_layout.setSpacing(6)
+        sensex_name = QLabel("SENSEX")
+        sensex_name.setStyleSheet("font-weight: 800; color: #8b96ad; font-size: 10px; font-family: 'Segoe UI', sans-serif;")
+        self.sensex_ltp = QLabel("--")
+        self.sensex_ltp.setStyleSheet("font-weight: 700; color: #f5f7fa; font-size: 11px; font-family: 'JetBrains Mono', monospace;")
+        self.sensex_chg = QLabel("--")
+        self.sensex_chg.setStyleSheet("font-weight: 700; color: #7d879e; font-size: 10px; font-family: 'JetBrains Mono', monospace;")
+        sensex_layout.addWidget(sensex_name)
+        sensex_layout.addWidget(self.sensex_ltp)
+        sensex_layout.addWidget(self.sensex_chg)
+        header_layout.addWidget(self.sensex_pill)
+
+        # Current Date & Time (IST) Pill
+        self.clock_pill = QFrame()
+        self.clock_pill.setObjectName("IndexPill")
+        clock_layout = QHBoxLayout(self.clock_pill)
+        clock_layout.setContentsMargins(8, 2, 8, 2)
+        clock_layout.setSpacing(6)
+        clock_icon = QLabel("🕒")
+        clock_icon.setStyleSheet("font-size: 10px;")
+        self.clock_lbl = QLabel()
+        self.clock_lbl.setStyleSheet("font-weight: 700; color: #4fc3f7; font-size: 11px; font-family: 'JetBrains Mono', monospace;")
+        clock_layout.addWidget(clock_icon)
+        clock_layout.addWidget(self.clock_lbl)
+        header_layout.addWidget(self.clock_pill)
+
+        # Clock live timer (updates every second in IST)
+        self.clock_timer = QTimer(self)
+        self.clock_timer.timeout.connect(self._update_clock)
+        self.clock_timer.start(1000)
+        self._update_clock()
+
+        header_layout.addStretch()
+
+        # Slot counter & Controls
         self.slot_counter = QLabel("0 / 6 Symbols")
         self.slot_counter.setStyleSheet("color: #388bfd; font-weight: 800; font-size: 11px;")
 
@@ -71,8 +133,6 @@ class WatchlistWidget(QWidget):
         """)
         self.clear_all_btn.clicked.connect(self.clear_all_symbols)
 
-        header_layout.addWidget(title)
-        header_layout.addStretch()
         header_layout.addWidget(self.slot_counter)
         header_layout.addSpacing(6)
         header_layout.addWidget(self.edit_btn)
@@ -267,8 +327,36 @@ class WatchlistWidget(QWidget):
         for sym in symbols_to_remove:
             self.remove_symbol(sym)
 
+    def _update_clock(self):
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_tz)
+        self.clock_lbl.setText(now_ist.strftime("%d-%b-%Y %H:%M:%S IST"))
+
+    def _update_index_pill(self, index_type: str, quote: Quote):
+        if quote.ltp <= 0:
+            return
+        color = "#00e676" if quote.change >= 0 else "#ff5252"
+        sign = "+" if quote.change >= 0 else ""
+        chg_text = f"{sign}{quote.change:,.2f} ({sign}{quote.change_pct:.2f}%)"
+
+        if index_type == "nifty":
+            self.nifty_ltp.setText(f"{quote.ltp:,.2f}")
+            self.nifty_chg.setText(chg_text)
+            self.nifty_chg.setStyleSheet(f"font-weight: 700; color: {color}; font-size: 10px; font-family: 'JetBrains Mono', monospace;")
+        elif index_type == "sensex":
+            self.sensex_ltp.setText(f"{quote.ltp:,.2f}")
+            self.sensex_chg.setText(chg_text)
+            self.sensex_chg.setStyleSheet(f"font-weight: 700; color: {color}; font-size: 10px; font-family: 'JetBrains Mono', monospace;")
+
     def update_quote(self, quote: Quote):
         """Called when a live quote tick arrives."""
+        if quote.symbol in ("NIFTY 50", "NSE:NIFTY 50"):
+            self._update_index_pill("nifty", quote)
+            return
+        elif quote.symbol in ("SENSEX", "BSE:SENSEX"):
+            self._update_index_pill("sensex", quote)
+            return
+
         if quote.symbol not in self.symbols_data:
             return
 

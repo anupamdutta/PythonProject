@@ -44,8 +44,11 @@ class PaperTradingEngine:
 
         # Update MTM for open positions matching this symbol using Best Bid (for Long) and Best Ask (for Short)
         for pos_key, pos in self.positions.items():
-            if pos.symbol == quote.symbol and pos.net_qty != 0:
-                pos.update_mtm(quote.ltp, quote.bid, quote.ask)
+            if pos.symbol == quote.symbol:
+                if pos.net_qty != 0:
+                    pos.update_mtm(quote.ltp, quote.bid, quote.ask)
+                elif quote.ltp > 0:
+                    pos.current_ltp = quote.ltp
 
         # Check pending limit orders
         self._check_pending_orders(quote)

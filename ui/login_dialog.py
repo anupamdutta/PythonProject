@@ -38,7 +38,7 @@ class SettingsLoginDialog(QDialog):
     capital_reset = pyqtSignal(float)               # initial_capital
     instruments_updated = pyqtSignal()
 
-    def __init__(self, current_mode="LIVE", current_enctoken="", current_capital=500000.0, current_user_id="ZP5815", parent=None):
+    def __init__(self, current_mode="LIVE", current_enctoken="", current_capital=500000.0, current_user_id="", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Account & Data Feed Settings")
         self.setFixedSize(560, 500)
@@ -98,7 +98,7 @@ class SettingsLoginDialog(QDialog):
 
         live_layout.addWidget(QLabel("User ID:"))
         self.user_id_input = QLineEdit()
-        self.user_id_input.setPlaceholderText("e.g. ZP5815")
+        self.user_id_input.setPlaceholderText("e.g. Kite User ID")
         self.user_id_input.setText(self.current_user_id)
         live_layout.addWidget(self.user_id_input)
 

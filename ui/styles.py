@@ -29,6 +29,12 @@ QFrame#MetricCard {
     padding: 4px 10px;
 }
 
+QFrame#IndexPill {
+    background-color: #151822;
+    border: 1px solid #242b3d;
+    border-radius: 4px;
+}
+
 QLabel#MetricTitle {
     color: #7d879e;
     font-size: 9px;

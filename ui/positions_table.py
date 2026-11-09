@@ -72,14 +72,14 @@ class PositionsWidget(QWidget):
         layout.addWidget(self.table)
 
     def update_positions(self, positions: dict):
-        """Refreshes positions list and live MTM."""
-        active_positions = {k: p for k, p in positions.items() if p.net_qty != 0 or p.realized_pnl != 0}
+        """Refreshes open positions list and live MTM."""
+        open_positions = {k: p for k, p in positions.items() if p.net_qty != 0}
 
         self.table.setRowCount(0)
         mono_font = QFont("JetBrains Mono", 10)
         bold_mono = QFont("JetBrains Mono", 10, QFont.Weight.Bold)
 
-        for pos_key, pos in active_positions.items():
+        for pos_key, pos in open_positions.items():
             row = self.table.rowCount()
             self.table.insertRow(row)
 
@@ -97,7 +97,7 @@ class PositionsWidget(QWidget):
             # 2: Net Qty
             qty_item = QTableWidgetItem(f"{pos.net_qty:+d}")
             qty_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            qty_color = QColor("#00e676") if pos.net_qty > 0 else (QColor("#ff5252") if pos.net_qty < 0 else QColor("#8b96ad"))
+            qty_color = QColor("#00e676") if pos.net_qty > 0 else QColor("#ff5252")
             qty_item.setForeground(qty_color)
             qty_item.setFont(bold_mono)
             self.table.setItem(row, 2, qty_item)
@@ -155,20 +155,147 @@ class PositionsWidget(QWidget):
             self.table.setItem(row, 9, unreal_item)
 
             # 10: Action button
-            if pos.net_qty != 0:
-                exit_btn = QPushButton("EXIT")
-                exit_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #c62828; color: white; font-size: 11px;
-                        font-weight: 800; padding: 3px 8px; border-radius: 3px;
-                    }
-                    QPushButton:hover { background-color: #b71c1c; }
-                """)
-                exit_btn.setFixedHeight(26)
-                exit_btn.clicked.connect(lambda _, k=pos_key: self.close_position_requested.emit(k))
-                self.table.setCellWidget(row, 10, exit_btn)
-            else:
-                closed_lbl = QLabel("CLOSED")
-                closed_lbl.setStyleSheet("color: #7d879e; font-size: 10px; font-weight: bold;")
-                closed_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.table.setCellWidget(row, 10, closed_lbl)
+            exit_btn = QPushButton("EXIT")
+            exit_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #c62828; color: white; font-size: 11px;
+                    font-weight: 800; padding: 3px 8px; border-radius: 3px;
+                }
+                QPushButton:hover { background-color: #b71c1c; }
+            """)
+            exit_btn.setFixedHeight(26)
+            exit_btn.clicked.connect(lambda _, k=pos_key: self.close_position_requested.emit(k))
+            self.table.setCellWidget(row, 10, exit_btn)
+
+
+class ClosedPositionsWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(6)
+
+        # Top Bar
+        top_bar = QHBoxLayout()
+        title = QLabel("CLOSED POSITIONS BOOK")
+        title.setStyleSheet("font-weight: 800; color: #8b96ad; font-size: 11px; letter-spacing: 0.8px;")
+
+        self.summary_lbl = QLabel("Total Closed P&L: ₹0.00")
+        self.summary_lbl.setStyleSheet("font-weight: 700; color: #8b96ad; font-size: 11px; font-family: 'JetBrains Mono', monospace;")
+
+        top_bar.addWidget(title)
+        top_bar.addStretch()
+        top_bar.addWidget(self.summary_lbl)
+        layout.addLayout(top_bar)
+
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels([
+            "Prod", "Symbol", "Closed Qty", "Avg Buy", "Avg Sell", "LTP",
+            "Realized P&L", "Status"
+        ])
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        # Flexible interactive resizable headers
+        header = self.table.horizontalHeader()
+        header.setSectionsMovable(True)
+        for i in range(8):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+
+        self.table.setColumnWidth(0, 65)   # Prod
+        self.table.setColumnWidth(1, 230)  # Symbol
+        self.table.setColumnWidth(2, 90)   # Closed Qty
+        self.table.setColumnWidth(3, 95)   # Avg Buy
+        self.table.setColumnWidth(4, 95)   # Avg Sell
+        self.table.setColumnWidth(5, 90)   # LTP
+        self.table.setColumnWidth(6, 120)  # Realized P&L
+        self.table.setColumnWidth(7, 85)   # Status
+
+        layout.addWidget(self.table)
+
+    def update_positions(self, positions: dict):
+        """Refreshes closed positions list and realized P&L."""
+        closed_positions = {
+            k: p for k, p in positions.items()
+            if p.net_qty == 0 and (p.buy_qty > 0 or p.sell_qty > 0 or p.realized_pnl != 0)
+        }
+
+        self.table.setRowCount(0)
+        mono_font = QFont("JetBrains Mono", 10)
+        bold_mono = QFont("JetBrains Mono", 10, QFont.Weight.Bold)
+
+        total_realized = 0.0
+
+        for pos_key, pos in closed_positions.items():
+            total_realized += pos.realized_pnl
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+
+            # 0: Product
+            prod_item = QTableWidgetItem(pos.product.value)
+            prod_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            prod_item.setFont(bold_mono)
+            self.table.setItem(row, 0, prod_item)
+
+            # 1: Symbol
+            sym_item = QTableWidgetItem(pos.symbol)
+            sym_item.setFont(bold_mono)
+            self.table.setItem(row, 1, sym_item)
+
+            # 2: Closed Qty
+            c_qty = max(pos.buy_qty, pos.sell_qty)
+            qty_item = QTableWidgetItem(str(c_qty))
+            qty_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            qty_item.setFont(bold_mono)
+            self.table.setItem(row, 2, qty_item)
+
+            # 3: Avg Buy Price
+            avg_buy = (pos.buy_value / pos.buy_qty) if pos.buy_qty > 0 else pos.avg_buy_price
+            buy_p = f"{avg_buy:.2f}" if avg_buy > 0 else "-"
+            buy_item = QTableWidgetItem(buy_p)
+            buy_item.setFont(mono_font)
+            buy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(row, 3, buy_item)
+
+            # 4: Avg Sell Price
+            avg_sell = (pos.sell_value / pos.sell_qty) if pos.sell_qty > 0 else pos.avg_sell_price
+            sell_p = f"{avg_sell:.2f}" if avg_sell > 0 else "-"
+            sell_item = QTableWidgetItem(sell_p)
+            sell_item.setFont(mono_font)
+            sell_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(row, 4, sell_item)
+
+            # 5: LTP
+            ltp_p = f"{pos.current_ltp:.2f}" if pos.current_ltp > 0 else "-"
+            ltp_item = QTableWidgetItem(ltp_p)
+            ltp_item.setFont(bold_mono)
+            ltp_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.table.setItem(row, 5, ltp_item)
+
+            # 6: Realized P&L
+            real_item = QTableWidgetItem(f"{pos.realized_pnl:+,.2f}")
+            real_item.setFont(bold_mono)
+            real_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            real_color = QColor("#00e676") if pos.realized_pnl > 0 else (QColor("#ff5252") if pos.realized_pnl < 0 else QColor("#8b96ad"))
+            real_item.setForeground(real_color)
+            self.table.setItem(row, 6, real_item)
+
+            # 7: Status
+            status_lbl = QLabel("CLOSED")
+            status_lbl.setStyleSheet("color: #7d879e; font-size: 10px; font-weight: bold; letter-spacing: 0.5px;")
+            status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setCellWidget(row, 7, status_lbl)
+
+        # Update summary label
+        sign = "+" if total_realized >= 0 else ""
+        color = "#00e676" if total_realized >= 0 else "#ff5252"
+        self.summary_lbl.setText(f"Total Closed P&L: ₹{sign}{total_realized:,.2f}")
+        self.summary_lbl.setStyleSheet(f"font-weight: 700; color: {color}; font-size: 11px; font-family: 'JetBrains Mono', monospace;")

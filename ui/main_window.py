@@ -17,7 +17,7 @@ from engine.data_feed import DataFeedManager
 
 from .watchlist_widget import WatchlistWidget
 from .order_panel import OrderPanel
-from .positions_table import PositionsWidget
+from .positions_table import PositionsWidget, ClosedPositionsWidget
 from .orders_table import OrdersWidget
 from .login_dialog import SettingsLoginDialog
 from .styles import DARK_THEME_QSS
@@ -38,7 +38,7 @@ class MainWindow(QMainWindow):
         # Core simulation engine and data feed
         self.config = self._load_config()
         self.engine = PaperTradingEngine(initial_capital=self.config.get("initial_capital", 500000.0))
-        self.feed = DataFeedManager()
+        self.feed = DataFeedManager(user_id=self.config.get("user_id", ""))
 
         self._init_ui()
         self._wire_signals()
@@ -150,12 +150,14 @@ class MainWindow(QMainWindow):
         self.order_panel.setMaximumWidth(460)
         bottom_splitter.addWidget(self.order_panel)
 
-        # TabWidget: PositionBook & OrderBook
+        # TabWidget: Open Positions, Closed Positions & OrderBook
         self.tabs = QTabWidget()
         self.positions_widget = PositionsWidget()
+        self.closed_positions_widget = ClosedPositionsWidget()
         self.orders_widget = OrdersWidget()
 
-        self.tabs.addTab(self.positions_widget, "PositionBook (Live MTM)")
+        self.tabs.addTab(self.positions_widget, "Open Positions (Live MTM)")
+        self.tabs.addTab(self.closed_positions_widget, "Closed Positions")
         self.tabs.addTab(self.orders_widget, "OrderBook")
         bottom_splitter.addWidget(self.tabs)
 
@@ -213,7 +215,8 @@ class MainWindow(QMainWindow):
     def _on_quote_received(self, quote: Quote):
         self.watchlist.update_quote(quote)
         self.order_panel.update_quote(quote)
-        self.engine.update_quote(quote)
+        if quote.symbol not in ("NIFTY 50", "SENSEX"):
+            self.engine.update_quote(quote)
 
     def _on_feed_status(self, msg: str, is_active: bool):
         if "Live" in msg or "Connected" in msg:
@@ -294,6 +297,7 @@ class MainWindow(QMainWindow):
 
         # Update Tables
         self.positions_widget.update_positions(self.engine.positions)
+        self.closed_positions_widget.update_positions(self.engine.positions)
         self.orders_widget.update_orders(self.engine.orders)
 
     def _on_order_updated(self, order: Order):
@@ -370,7 +374,7 @@ class MainWindow(QMainWindow):
             "initial_capital": 500000.0,
             "feed_mode": "LIVE",
             "enctoken": "",
-            "user_id": "ZP5815",
+            "user_id": "",
             "watchlist": []
         }
 
@@ -394,7 +398,7 @@ class MainWindow(QMainWindow):
 
     def _load_saved_state(self):
         token = self.config.get("enctoken", "")
-        uid = self.config.get("user_id", "ZP5815")
+        uid = self.config.get("user_id", "") or self.feed.user_id
         if self.config.get("feed_mode") == "LIVE" and token:
             self.feed.set_live_zerodha_session(token, uid)
         else:
@@ -412,5 +416,9 @@ class MainWindow(QMainWindow):
         for pos_key, pos in self.engine.positions.items():
             if pos.net_qty != 0:
                 self.feed.subscribe(pos.symbol, pos.exchange, pos.lot_size)
+
+        # Always subscribe index feeds for header live tickers
+        self.feed.subscribe("NIFTY 50", "NSE", 1)
+        self.feed.subscribe("SENSEX", "BSE", 1)
 
         self._refresh_portfolio_views()
